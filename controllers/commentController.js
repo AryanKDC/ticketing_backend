@@ -1,5 +1,8 @@
 import Comment from "../models/comments.js";
 import Ticket from "../models/ticket.js";
+import { saveFilesToDisk } from '../middleware/upload.js';
+import fs from "fs";
+import path from "path";
 
 // @desc    Create new comment
 // @route   POST /api/comments
@@ -9,6 +12,13 @@ export const createComment = async (req, res) => {
         req.body.user = req.user.id;
 
         const comment = await Comment.create(req.body);
+
+        // Only save files to disk after comment is successfully created
+        if (req.files && req.files.length > 0) {
+            const savedPaths = saveFilesToDisk(req.files);
+            comment.attachments = comment.attachments ? [...comment.attachments, ...savedPaths] : savedPaths;
+            await comment.save();
+        }
 
         // If ticket is provided, push comment to ticket and update lastMessage
         if (req.body.ticket) {
@@ -137,6 +147,17 @@ export const deleteComment = async (req, res) => {
         const comment = await Comment.findById(req.params.id);
         if (!comment) {
             return res.status(404).json({ success: false, error: 'Comment not found' });
+        }
+
+        // Delete attachment files from disk
+        if (comment.attachments && comment.attachments.length > 0) {
+            comment.attachments.forEach(filePath => {
+                // filePath is like '/public/uploads/filename.jpg', remove leading '/'
+                const fullPath = path.resolve(filePath.replace(/^\//, ''));
+                if (fs.existsSync(fullPath)) {
+                    fs.unlinkSync(fullPath);
+                }
+            });
         }
 
         // Remove comment reference from the ticket's comments array

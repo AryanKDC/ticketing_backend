@@ -1,6 +1,9 @@
 import Ticket from '../models/ticket.js';
 import Comment from '../models/comments.js';
 import { v4 as uuidv4 } from 'uuid';
+import { saveFilesToDisk } from '../middleware/upload.js';
+import fs from 'fs';
+import path from 'path';
 
 // @desc    Create new ticket
 // @route   POST /api/tickets
@@ -9,9 +12,16 @@ export const createTicket = async (req, res) => {
         req.body.user = req.user.id;
         req.body.lastMessage = new Date();
         req.body.status = "open";
-        req.body.ticketId = req.body.ticketId || 'TK-' + uuidv4().split('-')[0].toUpperCase();
+        req.body.ticketId = 'TK-' + uuidv4().split('-')[0].toUpperCase();
 
         const ticket = await Ticket.create(req.body);
+
+        // Only save files to disk after ticket is successfully created
+        if (req.files && req.files.length > 0) {
+            const savedPaths = saveFilesToDisk(req.files);
+            ticket.attachments = savedPaths;
+            await ticket.save();
+        }
 
         await ticket.populate('user', 'name email');
         if (ticket.assignee) {
@@ -217,11 +227,29 @@ export const deleteTicket = async (req, res) => {
             return res.status(404).json({ success: false, error: 'Ticket not found' });
         }
 
-        // Delete all comments associated with this ticket
-        await Comment.deleteMany({ ticket: ticket._id });
+        // Helper to delete attachment files from disk
+        const deleteFiles = (attachments) => {
+            if (attachments && attachments.length > 0) {
+                attachments.forEach(filePath => {
+                    const fullPath = path.resolve(filePath.replace(/^\//, ''));
+                    if (fs.existsSync(fullPath)) {
+                        fs.unlinkSync(fullPath);
+                    }
+                });
+            }
+        };
 
-        // Delete the ticket
+        // Delete ticket attachment files from disk
+        deleteFiles(ticket.attachments);
+
+        // Find all comments and delete their attachment files too
+        const comments = await Comment.find({ ticket: ticket._id });
+        comments.forEach(comment => deleteFiles(comment.attachments));
+
+        // Delete all comments and the ticket from DB
+        await Comment.deleteMany({ ticket: ticket._id });
         await Ticket.findByIdAndDelete(req.params.id);
+
 
         res.status(200).json({ success: true, data: {} });
     } catch (error) {
@@ -256,13 +284,20 @@ export const addTicketComment = async (req, res) => {
             return res.status(404).json({ success: false, error: 'Ticket not found' });
         }
 
-        // Create the comment
+        // Create the comment first (without attachments)
         const comment = await Comment.create({
             text: req.body.text,
             user: req.user.id,
             ticket: req.params.ticketId,
             attachments: req.body.attachments || []
         });
+
+        // Only save files to disk after comment is successfully created
+        if (req.files && req.files.length > 0) {
+            const savedPaths = saveFilesToDisk(req.files);
+            comment.attachments = [...comment.attachments, ...savedPaths];
+            await comment.save();
+        }
 
         // Push comment to ticket's comments array and update lastMessage
         ticket.comments.push(comment._id);
