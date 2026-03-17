@@ -3,6 +3,7 @@ import Ticket from "../models/ticket.js";
 import { saveFilesToDisk } from '../middleware/upload.js';
 import fs from "fs";
 import path from "path";
+import { getIO } from "../socket/socketServer.js";
 
 // @desc    Create new comment
 // @route   POST /api/comments
@@ -30,6 +31,14 @@ export const createComment = async (req, res) => {
 
         // Populate user before returning
         await comment.populate('user', 'name email type');
+
+        const io = getIO();
+
+        if (req.body.ticket) {
+            io.to(req.body.ticket).emit("newComment", comment);
+        } else {
+            io.emit("newComment", comment);
+        }
 
         res.status(201).json({ success: true, data: comment });
     } catch (error) {

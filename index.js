@@ -1,4 +1,5 @@
 import express from 'express';
+import http from 'http';
 import dotenv from 'dotenv';
 import cors from 'cors';
 import mongoose from 'mongoose';
@@ -7,11 +8,16 @@ import { fileURLToPath } from 'url';
 import ticketRoutes from './routes/ticketRoutes.js';
 import userRoutes from './routes/userRoutes.js';
 import commentRoutes from './routes/commentRoutes.js';
+import { initSocket } from './socket/socketServer.js';
 
 // Load environment variables
 dotenv.config();
 
 const app = express();
+const server = http.createServer(app);
+
+// Initialize WebSocket
+initSocket(server);
 
 // Middleware
 app.use(express.json());
@@ -45,7 +51,7 @@ const MONGODB_URI = process.env.MONGODB_URI;
 mongoose.connect(MONGODB_URI)
     .then(() => {
         console.log('MongoDB connected...');
-        app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+        server.listen(PORT, () => console.log(`Server running on port ${PORT}`));
     })
     .catch(err => {
         console.error('Connection error:', err.message);

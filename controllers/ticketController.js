@@ -4,6 +4,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { saveFilesToDisk } from '../middleware/upload.js';
 import fs from 'fs';
 import path from 'path';
+import { getIO } from '../socket/socketServer.js';
 
 // @desc    Create new ticket
 // @route   POST /api/tickets
@@ -27,6 +28,10 @@ export const createTicket = async (req, res) => {
         if (ticket.assignee) {
             await ticket.populate('assignee', 'name email');
         }
+
+        const io = getIO();
+        io.emit("newTicket", ticket);
+        io.emit("ticketListUpdated");
 
         res.status(201).json({ success: true, data: ticket });
     } catch (error) {
@@ -212,6 +217,10 @@ export const updateTicket = async (req, res) => {
             return res.status(404).json({ success: false, error: 'Ticket not found' });
         }
 
+        const io = getIO();
+        io.to(ticket._id.toString()).emit("ticketUpdated", ticket);
+        io.emit("ticketListUpdated");
+
         res.status(200).json({ success: true, data: ticket });
     } catch (error) {
         res.status(400).json({ success: false, error: error.message });
@@ -250,6 +259,9 @@ export const deleteTicket = async (req, res) => {
         await Comment.deleteMany({ ticket: ticket._id });
         await Ticket.findByIdAndDelete(req.params.id);
 
+        const io = getIO();
+        io.to(req.params.id).emit("ticketDeleted", req.params.id);
+        io.emit("ticketListUpdated");
 
         res.status(200).json({ success: true, data: {} });
     } catch (error) {
@@ -307,6 +319,9 @@ export const addTicketComment = async (req, res) => {
         // Populate user info before returning
         await comment.populate('user', 'name email type');
 
+        const io = getIO();
+        io.to(req.params.ticketId).emit("newComment", comment);
+
         res.status(201).json({ success: true, data: comment });
     } catch (error) {
         res.status(400).json({ success: false, error: error.message });
@@ -324,6 +339,11 @@ export const assignTicket = async (req, res) => {
 
         ticket.assignee = req.body.assignee;
         await ticket.save();
+        await ticket.populate('assignee', 'name email');
+
+        const io = getIO();
+        io.to(ticket._id.toString()).emit("ticketUpdated", ticket);
+        io.emit("ticketListUpdated");
 
         res.status(200).json({ success: true, data: ticket });
     } catch (error) {
