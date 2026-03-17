@@ -174,6 +174,14 @@ export const deleteComment = async (req, res) => {
             $pull: { comments: comment._id }
         });
 
+        const io = getIO();
+
+        if (comment.ticket) {
+            io.to(comment.ticket.toString()).emit("deleteComment", comment);
+        } else {
+            io.emit("deleteComment", comment);
+        }
+
         // Delete the comment
         await Comment.findByIdAndDelete(req.params.id);
 
